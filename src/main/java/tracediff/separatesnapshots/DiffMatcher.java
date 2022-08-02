@@ -1,13 +1,6 @@
 package tracediff.separatesnapshots;
 
 import microbat.model.BreakPoint;
-import microbat.model.ClassLocation;
-import tracediff.util.JavaUtil;
-import tracediff.util.MinimumASTNodeFinder;
-import org.eclipse.jdt.core.dom.ASTNode;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.Expression;
-import tracediff.StepChangeType;
 import tracediff.separatesnapshots.diff.DiffChunk;
 import tracediff.separatesnapshots.diff.DiffParser;
 import tracediff.separatesnapshots.diff.FilePairWithDiff;

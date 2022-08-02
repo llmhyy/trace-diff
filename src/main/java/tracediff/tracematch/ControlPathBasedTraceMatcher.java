@@ -17,9 +17,9 @@ import java.util.Map;
 
 public class ControlPathBasedTraceMatcher {
 
-	public PairList matchTraceNodePair(Trace mutatedTrace, Trace correctTrace, DiffMatcher matcher) {
+	public PairList matchTraceNodePair(Trace buggyTrace, Trace correctTrace, DiffMatcher matcher) {
 
-		IndexTreeNode beforeRoot = initVirtualRootWrapper(mutatedTrace);
+		IndexTreeNode beforeRoot = initVirtualRootWrapper(buggyTrace);
 		IndexTreeNode afterRoot = initVirtualRootWrapper(correctTrace);
 
 		HierarchyGraphDiffer differ = new HierarchyGraphDiffer();
