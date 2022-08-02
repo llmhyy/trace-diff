@@ -37,6 +37,18 @@ public class DiffMatcher {
 		this.fixPath = fixPath;
 	}
 
+	public void setBuggyPath(String buggyPath) {
+		this.buggyPath = buggyPath;
+	}
+
+	public void setFixPath(String fixPath) {
+		this.fixPath = fixPath;
+	}
+
+	public void setTestFolderName(String testFolderName) {
+		this.testFolderName = testFolderName;
+	}
+
 	protected static List<String> getRawDiffContent(String buggySourcePath, String fixSourcePath) {
 		return getRawDiffContent(buggySourcePath, fixSourcePath, false);
 	}
