@@ -1,10 +1,17 @@
 package tracediff.separatesnapshots;
 
 import microbat.model.BreakPoint;
+import microbat.model.ClassLocation;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.Expression;
+import tracediff.StepChangeType;
 import tracediff.separatesnapshots.diff.DiffChunk;
 import tracediff.separatesnapshots.diff.DiffParser;
 import tracediff.separatesnapshots.diff.FilePairWithDiff;
 import tracediff.separatesnapshots.diff.LineChange;
+import tracediff.util.JavaUtil;
+import tracediff.util.MinimumASTNodeFinder;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -70,8 +77,6 @@ public class DiffMatcher {
 			ProcessBuilder pb = new ProcessBuilder(cmds);
 			pb.redirectErrorStream(true); // merge stdout and stderr
 			Process proc = pb.start();
-
-//			Process proc = Runtime.getRuntime().exec(cmds, new String[]{});
 
 			InputStream stdin = proc.getInputStream();
 			InputStreamReader isr = new InputStreamReader(stdin);
@@ -318,5 +323,173 @@ public class DiffMatcher {
 
 		sourceToTargetMap.put(sourceLineCursor, targetLines);
 		targetToSourceMap.put(targetLineCursor, sourceLines);
+	}
+
+	// Below methods are not necessary for trace alignment, but tregression requires them in DiffMatcher
+	public List<FilePairWithDiff> getFileDiffList() {
+		return fileDiffList;
+	}
+	public boolean checkSourceDiff(BreakPoint breakPoint, boolean isOnBeforeTrace) {
+		FilePairWithDiff diff = findDiffBySourceFile(breakPoint);
+		if(diff != null){
+			for (DiffChunk chunk : diff.getChunks()) {
+				int start = chunk.getStartLineInTarget();
+				int end = start + chunk.getChunkLengthInTarget() - 1;
+				int type = findLineChange(breakPoint, chunk, start, end, isOnBeforeTrace);
+				if(type == StepChangeType.SRC){
+					System.currentTimeMillis();
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	private HashMap<String, ASTNode> astMap = new HashMap<>();
+	private int findLineChange(BreakPoint breakPoint, DiffChunk chunk, int start, int end, boolean isOnBeforeTrace) {
+		int count = 0;
+		for (int i = 0; i < chunk.getChangeList().size(); i++) {
+			LineChange lineChange = chunk.getChangeList().get(i);
+			if(isOnBeforeTrace){
+				if(lineChange.getType() != LineChange.ADD){
+					count++;
+				}
+			}
+			else{
+				if(lineChange.getType() != LineChange.REMOVE){
+					count++;
+				}
+			}
+
+			int currentLineNo = start + count - 1;
+
+
+			CompilationUnit cu = JavaUtil.findCompilationUnitBySourcePath(breakPoint.getFullJavaFilePath(),
+					breakPoint.getDeclaringCompilationUnitName());
+
+			ASTNode node = astMap.get(breakPoint.getFullJavaFilePath()+currentLineNo);
+			if(node==null){
+				MinimumASTNodeFinder finder = new MinimumASTNodeFinder(currentLineNo, cu);
+				cu.accept(finder);
+				node = finder.getMinimumNode();
+				astMap.put(breakPoint.getFullJavaFilePath()+currentLineNo, node);
+				if(node==null){
+					continue;
+				}
+			}
+
+			ASTNode parent = null;
+			if(node instanceof CompilationUnit) {
+				parent = node;
+			}
+			else {
+				parent = node.getParent();
+			}
+			int nodeStartLine = cu.getLineNumber(parent.getStartPosition());
+			int nodeEndLine = cu.getLineNumber(parent.getStartPosition()+parent.getLength());
+			if(nodeEndLine == -1) {
+				nodeEndLine = cu.getLineNumber(parent.getStartPosition()+parent.getLength() - 1);
+			}
+
+			if(!(parent instanceof Expression) ){
+				nodeStartLine = cu.getLineNumber(node.getStartPosition());
+				nodeEndLine = cu.getLineNumber(node.getStartPosition()+node.getLength());
+				if(nodeEndLine == -1) {
+					nodeEndLine = cu.getLineNumber(parent.getStartPosition()+parent.getLength() - 1);
+				}
+			}
+
+			if(!(node instanceof Expression)){
+				nodeStartLine = currentLineNo;
+				nodeEndLine = currentLineNo;
+			}
+
+			int stepLineNo = breakPoint.getLineNumber();
+			if (nodeStartLine<=stepLineNo && stepLineNo<=nodeEndLine) {
+				if(isOnBeforeTrace && lineChange.getType() == LineChange.REMOVE){
+					return StepChangeType.SRC;
+				}
+
+				if(!isOnBeforeTrace && lineChange.getType() == LineChange.ADD){
+					return StepChangeType.SRC;
+				}
+			}
+		}
+
+		return -1;
+	}
+	public FilePairWithDiff findDiffByTargetFile(BreakPoint breakPoint) {
+		for(FilePairWithDiff diff: this.fileDiffList){
+			if(diff.getTargetDeclaringCompilationUnit().equals(breakPoint.getDeclaringCompilationUnitName())){
+				return diff;
+			}
+		}
+
+		return null;
+	}
+
+	public ClassLocation findCorrespondingLocation(BreakPoint breakPoint, boolean isOnAfter) {
+		if(isOnAfter){
+			return getCorrespondentLocationInSource(breakPoint);
+		}
+		else{
+			return getCorrespondentLocationInTarget(breakPoint);
+		}
+	}
+	private ClassLocation getCorrespondentLocationInSource(BreakPoint breakPointInTarget) {
+		FilePairWithDiff diff = findDiffByTargetFile(breakPointInTarget);
+		if(diff == null){
+			return (BreakPoint) breakPointInTarget.clone();
+		}
+		else{
+			List<Integer> lines = diff.getTargetToSourceMap().get(breakPointInTarget.getLineNumber());
+			ClassLocation location = new ClassLocation(diff.getSourceDeclaringCompilationUnit(), null, lines.get(0));
+			return location;
+		}
+
+	}
+
+	private ClassLocation getCorrespondentLocationInTarget(BreakPoint breakPointInSource) {
+		FilePairWithDiff diff = findDiffBySourceFile(breakPointInSource);
+		if(diff == null){
+			return (BreakPoint) breakPointInSource.clone();
+		}
+		else{
+			List<Integer> lines = diff.getSourceToTargetMap().get(breakPointInSource.getLineNumber());
+			ClassLocation location =
+					new ClassLocation(diff.getTargetDeclaringCompilationUnit(), null, lines.get(0));
+			return location;
+
+		}
+	}
+	public String getSourceFolderName(){
+		return sourceFolderName;
+	}
+
+	public String getTestFolderName() {
+		return testFolderName;
+	}
+	public FilePairWithDiff findDiffBySourceFile(String sourceFile){
+		for(FilePairWithDiff diff: this.fileDiffList){
+			if(diff.getSourceFile().equals(sourceFile)){
+				return diff;
+			}
+		}
+
+		return null;
+	}
+	public FilePairWithDiff findDiffByTargetFile(String targetFile){
+		for(FilePairWithDiff diff: this.fileDiffList){
+			if(diff.getTargetFile().equals(targetFile)){
+				return diff;
+			}
+		}
+
+		return null;
+	}
+	public String getBuggyPath() {
+		return buggyPath;
+	}
+	public String getFixPath() {
+		return fixPath;
 	}
 }
